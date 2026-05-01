@@ -69,6 +69,10 @@ ext/speech_mac/Sources/SpeechMac/SpeechMac.swift   ← SFSpeechRecognizer + SFSp
 
 `bundle exec rake test` in one shot — same as `rb-vision-ocrmac`.
 
+## Usage / why no CLI
+
+Library only — same rationale as `rb-vision-ocrmac`. Interactive checks via `bundle exec rake console`. `examples/speech_mac.swift` exists as a minimal pure-Swift sample for verifying Speech behavior without Ruby.
+
 ## TDD discipline
 
 t-wada style RED → GREEN → REFACTOR independent commits. test-unit. Fixture: `test/fixtures/sample.aiff` generated via macOS `say -v Samantha` and committed (~135 KB).
