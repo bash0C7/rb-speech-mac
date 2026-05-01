@@ -26,14 +26,13 @@ func performTranscribe(path: String) -> String {
 
     var transcription = ""
     let sem = DispatchSemaphore(value: 0)
-    var signaled = false
 
     recognizer.recognitionTask(with: request) { result, error in
         if let result = result, result.isFinal {
             transcription = result.bestTranscription.formattedString
-            if !signaled { signaled = true; sem.signal() }
+            sem.signal()
         } else if error != nil {
-            if !signaled { signaled = true; sem.signal() }
+            sem.signal()
         }
     }
 
