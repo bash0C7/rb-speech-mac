@@ -8,7 +8,7 @@ Ruby native binding for Apple's Speech framework on macOS. Sibling of `rb-vision
 
 1. Thin wrapper. Pass-through Speech API. One audio file → one transcribed string.
 2. Fixed defaults: locale `en-US`, `shouldReportPartialResults = false`. Changes go through new API methods; never break existing behavior.
-3. 30s overall timeout, 5s authorization-request timeout. Failure (no permission, unreadable file, recognizer unavailable, OS error) → empty string. Does not raise exceptions.
+3. 30s overall recognition timeout. Failure (no permission, unreadable file, recognizer unavailable, OS error) → empty string. Does not raise exceptions.
 4. C bridge string handoff. Single `@_cdecl` pair plus shared `speech_mac_free`. Bridge function signatures fixed at `UnsafePointer<CChar>` ↔ `UnsafeMutablePointer<CChar>`.
 5. Scaffold parity. `swift_gem new rb-speech-mac` produces a skeleton whose only diffs against this repo are the implementation body, fixtures, and build artifacts.
 
@@ -20,10 +20,13 @@ Ruby native binding for Apple's Speech framework on macOS. Sibling of `rb-vision
 
 ## Known limitations
 
-**Permission handling on CLI / dylib loading.** Speech framework on macOS requires Speech Recognition permission. The first call to `SpeechMac.transcribe` triggers `SFSpeechRecognizer.requestAuthorization`. Behavior depends on the host process:
-- The dylib is loaded into the Ruby interpreter, which has no `NSSpeechRecognitionUsageDescription` Info.plist key — auto-deny is possible.
-- If denied or undetermined, `transcribe` returns `""`.
-- The user may need to grant Speech Recognition permission to the calling process (Ruby / Terminal / iTerm) via System Settings → Privacy & Security → Speech Recognition.
+**TCC permission and CLI / dylib loading.** Speech framework on macOS requires Speech Recognition permission *and* an `NSSpeechRecognitionUsageDescription` key in the host process's Info.plist. Calling `SFSpeechRecognizer.requestAuthorization()` from a host without that key triggers `__TCC_CRASHING_DUE_TO_PRIVACY_VIOLATION__` and aborts the process.
+
+This gem therefore **never calls `requestAuthorization`**. It only reads the cached `SFSpeechRecognizer.authorizationStatus()`:
+- If `.authorized` (typically only from a host that already has the proper Info.plist), the recognition proceeds.
+- Otherwise (`.notDetermined`, `.denied`, `.restricted`), `transcribe` returns `""`.
+
+In practice, when `rb-speech-mac` is loaded into the Ruby interpreter from a CLI, the status is almost always `.notDetermined`, so `transcribe` returns `""`. To make this gem actually transcribe audio, the Ruby host process must have been pre-authorized — e.g., by running it from inside an app bundle that owns the proper Info.plist. That is out of scope for this gem.
 
 Tests therefore assert only return type (`String`) and the empty-string fallback path, not specific transcribed content.
 
@@ -57,7 +60,7 @@ ext/speech_mac/Sources/SpeechMac/SpeechMac.swift   ← SFSpeechRecognizer + SFSp
 | `lib/speech_mac.rb` | `require_relative` to load the .bundle; host of `module SpeechMac` |
 | `ext/speech_mac/speech_mac.c` | `Init_speech_mac` exposes `transcribe`; copies Swift-returned `char*` into a Ruby UTF-8 String, then calls `speech_mac_free` |
 | `SpeechMacBridge.swift` | C ABI export via `@_cdecl`. Calls Swift implementation and returns C string via `strdup` |
-| `SpeechMac.swift` | Real implementation: synchronous `SFSpeechRecognizer.requestAuthorization` + `SFSpeechURLRecognitionRequest`. `DispatchSemaphore` for both auth and recognition timeouts |
+| `SpeechMac.swift` | Real implementation: read-only `SFSpeechRecognizer.authorizationStatus()` (avoids TCC crash) + `SFSpeechURLRecognitionRequest`. `DispatchSemaphore` for the 30s recognition timeout |
 | `ext/speech_mac/extconf.rb` | `SwiftGem::Mkmf.create_swift_makefile("speech_mac/speech_mac", package: "SpeechMac", source_dir: __dir__)` |
 | `examples/speech_mac.swift` | Pure-Swift sample script. Ruby-free, kept as a Speech-behavior reference |
 | `Rakefile` | `Rake::ExtensionTask("speech_mac")` + `task test: :compile`. `task console: :compile` for IRB |

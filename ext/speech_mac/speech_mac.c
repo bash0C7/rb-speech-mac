@@ -1,9 +1,9 @@
 #include <ruby.h>
 #include "speech_mac.h"
 
-static VALUE rb_speech_mac_perform(VALUE self, VALUE input) {
-    const char *c_input = StringValueCStr(input);
-    char *result = speech_mac_perform(c_input);
+static VALUE rb_speech_mac_transcribe(VALUE self, VALUE path) {
+    const char *c_path = StringValueCStr(path);
+    char *result = speech_mac_transcribe(c_path);
     if (result == NULL) {
         return rb_utf8_str_new_cstr("");
     }
@@ -14,5 +14,5 @@ static VALUE rb_speech_mac_perform(VALUE self, VALUE input) {
 
 void Init_speech_mac(void) {
     VALUE module = rb_define_module("SpeechMac");
-    rb_define_singleton_method(module, "perform", rb_speech_mac_perform, 1);
+    rb_define_singleton_method(module, "transcribe", rb_speech_mac_transcribe, 1);
 }
