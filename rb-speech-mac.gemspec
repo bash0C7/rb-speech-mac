@@ -8,8 +8,8 @@ Gem::Specification.new do |spec|
   spec.authors = ["bash0C7"]
   spec.email = ["ksb.4038.nullpointer+github@gmail.com"]
 
-  spec.summary = "Swift-backed native Ruby extension: rb-speech-mac"
-  spec.description = "rb-speech-mac wraps a Swift implementation as a Ruby native extension via Swift Package Manager and a thin C bridge. Edit this description before publishing."
+  spec.summary = "Ruby binding for Apple Speech framework on macOS"
+  spec.description = "Calls Apple Speech framework's file-based speech recognition (SFSpeechURLRecognitionRequest) from Ruby on macOS / Apple Silicon. Built on top of swift_gem."
   spec.homepage = "https://github.com/bash0C7/rb-speech-mac"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2.0"
