@@ -24,7 +24,7 @@ module SpeechMac
 
     def transcribe(audio_path)
       stdout, stderr, status = run("transcribe", audio_path)
-      if status.exitstatus.zero?
+      if status.exitstatus&.zero?
         Result.new(text: stdout, success: true, error: nil)
       else
         Result.new(text: nil, success: false, error: error_for(status.exitstatus, stderr))
@@ -36,8 +36,10 @@ module SpeechMac
     def authorize
       stdout, stderr, status = run("authorize")
       sym = AUTHORIZATION_STATUSES.fetch(stdout.strip, :unknown)
-      if status.exitstatus.zero?
+      if status.exitstatus&.zero?
         AuthorizationResult.new(status: sym, success: true, error: nil)
+      elsif status.exitstatus.nil?
+        AuthorizationResult.new(status: sym, success: false, error: HelperCrashError.new(crash_message(stderr, status)))
       else
         message = stderr.empty? ? stdout : stderr
         AuthorizationResult.new(status: sym, success: false, error: NotAuthorizedError.new(message))
@@ -53,10 +55,17 @@ module SpeechMac
     end
 
     def error_for(exit_code, stderr)
+      return HelperCrashError.new(crash_message(stderr, nil)) if exit_code.nil?
       klass = EXIT_CODE_ERRORS[exit_code]
       return klass.new(stderr) if klass
       return Error.new(stderr) if exit_code == 6
       HelperCrashError.new(stderr.empty? ? "exit #{exit_code}" : stderr)
+    end
+
+    def crash_message(stderr, status)
+      return stderr unless stderr.empty?
+      sig = status&.termsig
+      sig ? "killed by signal #{sig}" : "killed by signal"
     end
   end
 end
