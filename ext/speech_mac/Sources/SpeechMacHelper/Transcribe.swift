@@ -25,10 +25,8 @@ func transcribe(path: String) -> Int32 {
         return 3
     }
 
-    let allowCloud = ProcessInfo.processInfo.environment["SPEECH_MAC_ALLOW_CLOUD"] == "1"
-
-    if !allowCloud && !recognizer.supportsOnDeviceRecognition {
-        FileHandle.standardError.write("on-device recognition not supported for locale \(defaultLocale); install the Siri language model in System Settings > Apple Intelligence & Siri (or set SPEECH_MAC_ALLOW_CLOUD=1)\n".data(using: .utf8)!)
+    guard recognizer.supportsOnDeviceRecognition else {
+        FileHandle.standardError.write("on-device recognition not supported for locale \(defaultLocale); enable Siri or Dictation in System Settings and install the language model\n".data(using: .utf8)!)
         return 3
     }
 
@@ -36,44 +34,33 @@ func transcribe(path: String) -> Int32 {
     let request = SFSpeechURLRecognitionRequest(url: url)
     request.shouldReportPartialResults = false
     request.taskHint = .dictation
-    request.requiresOnDeviceRecognition = !allowCloud
+    request.requiresOnDeviceRecognition = true
 
     var transcription = ""
     var recognitionError: Error? = nil
-    var callbackCount = 0
     var done = false
 
-    FileHandle.standardError.write("[diag] starting recognition: locale=\(defaultLocale) onDevice=\(!allowCloud) supportsOnDevice=\(recognizer.supportsOnDeviceRecognition) file=\(path)\n".data(using: .utf8)!)
-
     recognizer.recognitionTask(with: request) { result, error in
-        callbackCount += 1
         if let error = error {
-            FileHandle.standardError.write("[diag] callback #\(callbackCount): error=\(error.localizedDescription) (\(error))\n".data(using: .utf8)!)
             recognitionError = error
             done = true
             CFRunLoopStop(CFRunLoopGetMain())
             return
         }
-        if let result = result {
-            FileHandle.standardError.write("[diag] callback #\(callbackCount): isFinal=\(result.isFinal) text=\"\(result.bestTranscription.formattedString)\"\n".data(using: .utf8)!)
-            if result.isFinal {
-                transcription = result.bestTranscription.formattedString
-                done = true
-                CFRunLoopStop(CFRunLoopGetMain())
-            }
-        } else {
-            FileHandle.standardError.write("[diag] callback #\(callbackCount): nil result, no error\n".data(using: .utf8)!)
+        if let result = result, result.isFinal {
+            transcription = result.bestTranscription.formattedString
+            done = true
+            CFRunLoopStop(CFRunLoopGetMain())
         }
     }
 
-    // Bound the wait via a one-shot timer; CFRunLoopStop is called from the
-    // recognition callback (or the timer) to break the run.
+    // SFSpeechRecognizer dispatches result callbacks through the main run loop.
+    // CFRunLoopRun lets them execute; the one-shot timer bounds the wait.
     var timedOut = false
     let timer = DispatchSource.makeTimerSource(queue: .main)
     timer.schedule(deadline: .now() + .seconds(recognitionTimeoutSeconds))
     timer.setEventHandler {
         timedOut = true
-        FileHandle.standardError.write("[diag] transcribe: timeout fired (callbacks=\(callbackCount))\n".data(using: .utf8)!)
         CFRunLoopStop(CFRunLoopGetMain())
     }
     timer.resume()
