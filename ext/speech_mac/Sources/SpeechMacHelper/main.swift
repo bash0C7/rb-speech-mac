@@ -1,5 +1,11 @@
 import Foundation
 
+// Disclaim TCC responsibility from the parent (terminal / Ruby) once, on
+// first invocation. See Disclaim.swift for the why.
+if ProcessInfo.processInfo.environment[disclaimEnvKey] == nil {
+    reexecWithDisclaim()
+}
+
 let arguments = CommandLine.arguments
 
 guard arguments.count >= 2 else {
