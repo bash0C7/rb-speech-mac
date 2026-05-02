@@ -2,10 +2,23 @@
 
 require "bundler/gem_tasks"
 require "rake/testtask"
-require "rake/extensiontask"
 
-Rake::ExtensionTask.new("speech_mac") do |ext|
-  ext.lib_dir = "lib/speech_mac"
+EXT_DIR = File.expand_path("ext/speech_mac", __dir__)
+
+desc "Build the SpeechMacHelper binary and install it into lib/speech_mac/"
+task :compile do
+  Dir.chdir(EXT_DIR) do
+    sh Gem.ruby, "extconf.rb"
+    sh "make", "install"
+  end
+end
+
+desc "Remove the helper binary and Swift build cache"
+task :clean do
+  Dir.chdir(EXT_DIR) do
+    sh "make", "clean" if File.exist?("Makefile")
+  end
+  rm_f File.join(__dir__, "lib", "speech_mac", "SpeechMacHelper")
 end
 
 Rake::TestTask.new(:test) do |t|
@@ -23,5 +36,4 @@ task console: :compile do
   IRB.start
 end
 
-task test: :compile
 task default: :test

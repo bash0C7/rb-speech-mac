@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.email = ["ksb.4038.nullpointer+github@gmail.com"]
 
   spec.summary = "Ruby binding for Apple Speech framework on macOS"
-  spec.description = "Calls Apple Speech framework's file-based speech recognition (SFSpeechURLRecognitionRequest) from Ruby on macOS / Apple Silicon. Built on top of swift_gem."
+  spec.description = "Calls Apple Speech framework's file-based speech recognition (SFSpeechURLRecognitionRequest) from Ruby on macOS / Apple Silicon, via a TCC-permitted helper subprocess built and signed at install time."
   spec.homepage = "https://github.com/bash0C7/rb-speech-mac"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2.0"
@@ -28,6 +28,4 @@ Gem::Specification.new do |spec|
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
   spec.extensions = ["ext/speech_mac/extconf.rb"]
-
-  spec.add_dependency "swift_gem"
 end
