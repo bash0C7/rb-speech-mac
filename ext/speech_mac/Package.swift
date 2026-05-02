@@ -3,18 +3,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "SpeechMac",
+    name: "SpeechMacHelper",
     platforms: [.macOS(.v12)],
-    products: [
-        .library(
-            name: "SpeechMac",
-            type: .dynamic,
-            targets: ["SpeechMac"]
-        ),
-    ],
     targets: [
-        .target(
-            name: "SpeechMac"
+        .executableTarget(
+            name: "SpeechMacHelper",
+            path: "Sources/SpeechMacHelper",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Resources/Info.plist"
+                ])
+            ]
         ),
     ]
 )
