@@ -16,6 +16,18 @@ gem install rb-speech-mac
 
 The helper binary is built and signed during `gem install` (no precompiled binaries are shipped). Requires Swift 6.0+ and macOS 12+. Optional but recommended: an Apple Development signing identity in your keychain for stable TCC permission across rebuilds — without it, the helper falls back to ad-hoc signing and macOS will re-prompt for Speech Recognition permission after each rebuild.
 
+## System requirements: enable Siri (or Dictation)
+
+Recognition runs on-device. The on-device language model that `SFSpeechRecognizer` uses ships with **Siri** and **Dictation** — the system requires at least one of those to be turned on. With both off, the framework returns `kLSRErrorDomain Code=201 "Siri and Dictation are disabled"` and `transcribe` fails with a generic `SpeechMac::Error` carrying that message.
+
+On macOS 15 (Sequoia) and later, enable Siri from:
+
+> **System Settings → Apple Intelligence & Siri → Siri**
+
+(Older macOS: **System Settings → Siri & Spotlight** or **Keyboard → Dictation**.)
+
+The first time you transcribe, macOS may also show a one-time notice that audio data may be sent to Apple to improve recognition. Click through it; the gem sets `requiresOnDeviceRecognition = true`, so audio stays on the device regardless.
+
 ## Usage
 
 ```ruby
@@ -35,7 +47,7 @@ end
 
 `SpeechMac.transcribe` returns a `SpeechMac::Result` Data with `.text` (String or nil), `.success` (Boolean), and `.error` (an Exception subclass instance or nil). `SpeechMac.authorize` returns `SpeechMac::AuthorizationResult` with `.status` symbol, `.success`, `.error`.
 
-Locale is fixed at `en-US`. Recognition has a 30s timeout.
+Locale is fixed at `en-US`. Recognition runs on-device only and has a 30s timeout.
 
 ## Codesigning
 
