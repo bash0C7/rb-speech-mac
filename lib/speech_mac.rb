@@ -18,5 +18,9 @@ module SpeechMac
     def transcribe(path)
       HelperClient.new(helper_path).transcribe(path)
     end
+
+    def authorize
+      HelperClient.new(helper_path).authorize
+    end
   end
 end
