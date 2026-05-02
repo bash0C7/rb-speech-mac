@@ -4,20 +4,48 @@ import Foundation
 private let authorizeTimeoutSeconds = 60
 
 func authorize() -> Int32 {
-    let sem = DispatchSemaphore(value: 0)
+    let initial = SFSpeechRecognizer.authorizationStatus()
+    FileHandle.standardError.write("[diag] authorize: initial status=\(initial.rawValue)\n".data(using: .utf8)!)
+
+    // Short-circuit if already decided — no callback needed, no dialog
+    if initial != .notDetermined {
+        return emit(status: initial)
+    }
+
     var finalStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
 
+    FileHandle.standardError.write("[diag] authorize: calling requestAuthorization, will spin main runloop\n".data(using: .utf8)!)
+
     SFSpeechRecognizer.requestAuthorization { status in
+        FileHandle.standardError.write("[diag] authorize: callback fired status=\(status.rawValue)\n".data(using: .utf8)!)
         finalStatus = status
-        sem.signal()
+        CFRunLoopStop(CFRunLoopGetMain())
     }
-    if sem.wait(timeout: .now() + .seconds(authorizeTimeoutSeconds)) == .timedOut {
+
+    // Bound the wait via a one-shot timer that stops the runloop.
+    var timedOut = false
+    let timer = DispatchSource.makeTimerSource(queue: .main)
+    timer.schedule(deadline: .now() + .seconds(authorizeTimeoutSeconds))
+    timer.setEventHandler {
+        timedOut = true
+        FileHandle.standardError.write("[diag] authorize: timeout fired\n".data(using: .utf8)!)
+        CFRunLoopStop(CFRunLoopGetMain())
+    }
+    timer.resume()
+
+    CFRunLoopRun()
+    timer.cancel()
+
+    if timedOut {
         FileHandle.standardError.write("authorize timed out after \(authorizeTimeoutSeconds)s (no user response)\n".data(using: .utf8)!)
         return 5
     }
+    return emit(status: finalStatus)
+}
 
+private func emit(status: SFSpeechRecognizerAuthorizationStatus) -> Int32 {
     let statusName: String
-    switch finalStatus {
+    switch status {
     case .authorized:    statusName = "authorized"
     case .denied:        statusName = "denied"
     case .restricted:    statusName = "restricted"
@@ -25,5 +53,5 @@ func authorize() -> Int32 {
     @unknown default:    statusName = "unknown"
     }
     print(statusName, terminator: "")
-    return finalStatus == .authorized ? 0 : 2
+    return status == .authorized ? 0 : 2
 }
