@@ -3,15 +3,7 @@
 require "test_helper"
 
 class HelperClientTest < Test::Unit::TestCase
-  FAKE_HELPER = File.expand_path("../fixtures/fake_helper.sh", __dir__)
-
-  def setup
-    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR FAKE_SIGNAL].each { |k| ENV.delete(k) }
-  end
-
-  def teardown
-    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR FAKE_SIGNAL].each { |k| ENV.delete(k) }
-  end
+  include FakeHelperSupport
 
   def build_client(exit_code: 0, stdout: "", stderr: "", path: FAKE_HELPER)
     ENV["FAKE_EXIT"] = exit_code.to_s

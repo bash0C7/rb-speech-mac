@@ -3,19 +3,9 @@
 require "test_helper"
 
 class SpeechMacTranscribeTest < Test::Unit::TestCase
+  include FakeHelperSupport
+
   FIXTURE = File.expand_path("../fixtures/sample.aiff", __dir__)
-  FAKE_HELPER = File.expand_path("../fixtures/fake_helper.sh", __dir__)
-
-  def setup
-    @original_helper_path = SpeechMac.helper_path
-    SpeechMac.helper_path = FAKE_HELPER
-    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR].each { |k| ENV.delete(k) }
-  end
-
-  def teardown
-    SpeechMac.helper_path = @original_helper_path
-    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR].each { |k| ENV.delete(k) }
-  end
 
   test "helper_path is configurable" do
     SpeechMac.helper_path = "/some/custom/path"

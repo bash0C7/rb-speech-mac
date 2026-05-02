@@ -3,18 +3,7 @@
 require "test_helper"
 
 class SpeechMacAuthorizeTest < Test::Unit::TestCase
-  FAKE_HELPER = File.expand_path("../fixtures/fake_helper.sh", __dir__)
-
-  def setup
-    @original_helper_path = SpeechMac.helper_path
-    SpeechMac.helper_path = FAKE_HELPER
-    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR].each { |k| ENV.delete(k) }
-  end
-
-  def teardown
-    SpeechMac.helper_path = @original_helper_path
-    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR].each { |k| ENV.delete(k) }
-  end
+  include FakeHelperSupport
 
   test "authorize returns an AuthorizationResult" do
     ENV["FAKE_EXIT"] = "0"
