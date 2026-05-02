@@ -9,13 +9,12 @@ vendor/bundle/
 Gemfile.lock
 *.gem
 
-# Built native extension artifacts
+# Build artifacts (helper binary + Swift cache + generated Makefile)
 ext/**/.build/
 ext/**/Makefile
-ext/**/*.o
-ext/**/*.bundle
-ext/**/*.bundle.dSYM/
-ext/**/mkmf.log
-lib/**/*.bundle
-lib/**/*.bundle.dSYM/
+lib/speech_mac/SpeechMacHelper
+
+# Local Claude Code settings (per-machine permissions / state)
+.claude/settings.local.json
+
 /tmp/
