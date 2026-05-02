@@ -1,6 +1,8 @@
 # rb-speech-mac
 
-Ruby binding for Apple's Speech framework on macOS / Apple Silicon. Calls file-based speech recognition (`SFSpeechURLRecognitionRequest`) directly from Ruby via Swift Package Manager and a thin C bridge. Built on [swift_gem](https://github.com/bash0C7/swift_gem).
+Ruby binding for Apple's Speech framework on macOS / Apple Silicon. Wraps `SFSpeechURLRecognitionRequest` for file-based transcription.
+
+This gem solves the TCC privacy-violation crash that normally kills Ruby when calling Speech.framework: it ships a small Swift CLI helper that's built and signed at install time, with `NSSpeechRecognitionUsageDescription` embedded into its Mach-O. Ruby spawns the helper as a subprocess and reads the result.
 
 ## Installation
 
@@ -12,55 +14,68 @@ bundle add rb-speech-mac
 gem install rb-speech-mac
 ```
 
+The helper binary is built and signed during `gem install` (no precompiled binaries are shipped). Requires Swift 6.0+ and macOS 12+. Optional but recommended: an Apple Development signing identity in your keychain for stable TCC permission across rebuilds — without it, the helper falls back to ad-hoc signing and macOS will re-prompt for Speech Recognition permission after each rebuild.
+
 ## Usage
 
 ```ruby
 require "speech_mac"
 
-SpeechMac.transcribe("path/to/audio.aiff")
-# => "Hello world this is a test of speech recognition"
+# Trigger the macOS permission dialog (only needed once per machine, per binary).
+auth = SpeechMac.authorize
+exit unless auth.success # auth.error tells you why
+
+result = SpeechMac.transcribe("path/to/audio.aiff")
+if result.success
+  puts result.text
+else
+  warn "#{result.error.class}: #{result.error.message}"
+end
 ```
 
-Locale is fixed at `en-US`. On failure (no Speech Recognition permission, unreadable file, recognizer unavailable, 30s timeout) the method returns `""`.
+`SpeechMac.transcribe` returns a `SpeechMac::Result` Data with `.text` (String or nil), `.success` (Boolean), and `.error` (an Exception subclass instance or nil). `SpeechMac.authorize` returns `SpeechMac::AuthorizationResult` with `.status` symbol, `.success`, `.error`.
 
-Or open an IRB console with the gem preloaded:
+Locale is fixed at `en-US`. Recognition has a 30s timeout.
+
+## Codesigning
+
+`extconf.rb` selects an identity in this order:
+
+1. `SPEECH_MAC_CODESIGN_IDENTITY` env var
+2. First `Apple Development:` certificate from `security find-identity -v -p codesigning`
+3. Ad-hoc (`-`) fallback
+
+Pass an explicit identity if you want stable TCC permission across rebuilds:
 
 ```bash
-bundle exec rake console
+SPEECH_MAC_CODESIGN_IDENTITY="Apple Development: Foo (XXXX)" bundle install
 ```
 
-## Permission
-
-Speech.framework requires `NSSpeechRecognitionUsageDescription` in the host process's Info.plist. Calling `SFSpeechRecognizer.requestAuthorization()` without that key would hard-crash the process via TCC. This gem therefore only reads `SFSpeechRecognizer.authorizationStatus()` and returns `""` if not already `.authorized`. In a CLI Ruby session that status will be `.notDetermined` and `transcribe` will return `""`. To get a real transcription, run from a host process that already has the proper Info.plist (e.g. an app bundle). See `CLAUDE.md` for the full rationale.
-
 ## Reference: Ruby example
-
-`example.rb` at the repo root demonstrates the call:
 
 ```bash
 bundle exec ruby example.rb path/to/audio.aiff
 ```
 
-It defaults to `test/fixtures/sample.aiff` (generated via `say -v Samantha`) if no argument is given.
+Defaults to `test/fixtures/sample.aiff` (generated via `say -v Samantha`) if no argument is given. Calls `SpeechMac.authorize` then `SpeechMac.transcribe`.
 
 ## Reference: pure Swift sample
 
-A self-contained Swift script lives at `examples/speech_mac.swift` for sanity-checking Speech behavior without going through Ruby:
+A standalone Swift script at `examples/speech_mac.swift` for sanity-checking Speech behavior without going through Ruby:
 
 ```bash
 swift examples/speech_mac.swift path/to/audio.aiff
 ```
 
+Note: this script will get the same `.notDetermined` status as an unsigned Ruby interpreter would and will not actually transcribe — it's a behavioral reference, not a working alternative.
+
 ## Development
 
 ```bash
 bundle install
-bundle exec rake test
+bundle exec rake compile  # builds the helper and installs it under lib/
+bundle exec rake test     # runs the spec suite (uses a fake helper, no real binary needed)
 ```
-
-`rake test` automatically compiles the Swift Package (`swift build -c release`) and links the C bridge into `lib/speech_mac/speech_mac.bundle` before running the spec, via `Rake::ExtensionTask`.
-
-To run only the build step: `bundle exec rake compile`.
 
 ## License
 
