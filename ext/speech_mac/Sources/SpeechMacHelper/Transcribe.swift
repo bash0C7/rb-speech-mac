@@ -28,6 +28,10 @@ func transcribe(path: String) -> Int32 {
     let url = URL(fileURLWithPath: path)
     let request = SFSpeechURLRecognitionRequest(url: url)
     request.shouldReportPartialResults = false
+    request.taskHint = .dictation
+    if recognizer.supportsOnDeviceRecognition {
+        request.requiresOnDeviceRecognition = true
+    }
 
     var transcription = ""
     var recognitionError: Error? = nil
