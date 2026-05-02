@@ -1,6 +1,8 @@
 import Speech
 import Foundation
 
+private let authorizeTimeoutSeconds = 60
+
 func authorize() -> Int32 {
     let sem = DispatchSemaphore(value: 0)
     var finalStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
@@ -9,7 +11,10 @@ func authorize() -> Int32 {
         finalStatus = status
         sem.signal()
     }
-    sem.wait()
+    if sem.wait(timeout: .now() + .seconds(authorizeTimeoutSeconds)) == .timedOut {
+        FileHandle.standardError.write("authorize timed out after \(authorizeTimeoutSeconds)s (no user response)\n".data(using: .utf8)!)
+        return 5
+    }
 
     let statusName: String
     switch finalStatus {
