@@ -6,11 +6,11 @@ class HelperClientTest < Test::Unit::TestCase
   FAKE_HELPER = File.expand_path("../fixtures/fake_helper.sh", __dir__)
 
   def setup
-    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR].each { |k| ENV.delete(k) }
+    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR FAKE_SIGNAL].each { |k| ENV.delete(k) }
   end
 
   def teardown
-    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR].each { |k| ENV.delete(k) }
+    %w[FAKE_EXIT FAKE_STDOUT FAKE_STDERR FAKE_SIGNAL].each { |k| ENV.delete(k) }
   end
 
   def build_client(exit_code: 0, stdout: "", stderr: "", path: FAKE_HELPER)
@@ -76,6 +76,24 @@ class HelperClientTest < Test::Unit::TestCase
     assert_kind_of(SpeechMac::HelperSpawnError, result.error)
     assert_nil(result.text)
     assert_equal(false, result.success)
+  end
+
+  test "transcribe with helper killed by signal -> HelperCrashError" do
+    ENV["FAKE_SIGNAL"] = "KILL"
+    client = SpeechMac::HelperClient.new(FAKE_HELPER)
+    result = client.transcribe("/some/path")
+    assert_kind_of(SpeechMac::HelperCrashError, result.error)
+    assert_equal(false, result.success)
+    assert_nil(result.text)
+  end
+
+  test "authorize with helper killed by signal -> HelperCrashError" do
+    ENV["FAKE_SIGNAL"] = "KILL"
+    client = SpeechMac::HelperClient.new(FAKE_HELPER)
+    result = client.authorize
+    assert_kind_of(SpeechMac::AuthorizationResult, result)
+    assert_equal(false, result.success)
+    assert_kind_of(SpeechMac::HelperCrashError, result.error)
   end
 
   # authorize
