@@ -28,12 +28,12 @@ class SpeechMacTranscribeTest < Test::Unit::TestCase
     assert_nil(result.error)
   end
 
-  test "transcribe failure: helper exit 4 -> FileNotFoundError" do
-    ENV["FAKE_EXIT"] = "4"
-    result = SpeechMac.transcribe("/nonexistent/missing.aiff")
-    assert_equal(false, result.success)
-    assert_nil(result.text)
-    assert_kind_of(SpeechMac::FileNotFoundError, result.error)
+  test "transcribe raises Errno::ENOENT for nonexistent path before invoking helper" do
+    missing = "/nonexistent/missing-#{Process.pid}.aiff"
+    assert_false(File.exist?(missing))
+    assert_raise(Errno::ENOENT) do
+      SpeechMac.transcribe(missing)
+    end
   end
 
   test "transcribe with helper binary missing -> HelperSpawnError" do
