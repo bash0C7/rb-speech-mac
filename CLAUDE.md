@@ -10,7 +10,7 @@ Sibling of `rb-vision-ocrmac`, but architecturally diverged: that gem is a thin 
 
 1. **Subprocess isolation for TCC.** The Ruby interpreter never loads Speech.framework code — it spawns the helper. TCC permission attaches to the helper's identity (cdhash for ad-hoc, designated requirement for Apple Development cert), independent of the Ruby host.
 2. **Source-only distribution, build at install time.** No precompiled binaries shipped. `extconf.rb` writes a custom Makefile that runs `swift build` and `codesign` during `gem install` / `bundle install`. The user gets the helper compiled and signed for their own machine.
-3. **Explicit error reporting via `Data`.** Failures don't return `""` — they return a `Result` (or `AuthorizationResult`) Data with `success: false` and an `error:` field carrying the specific Exception subclass. Callers can pattern-match or `raise result.error`.
+3. **Explicit error reporting via `Data` for domain failures; raise for preconditions.** Domain failures (TCC denied, Siri off, recognizer unavailable, 30s timeout, Apple-framework recognition error, file exists but unreadable) don't return `""` — they return a `Result` (or `AuthorizationResult`) Data with `success: false` and an `error:` field carrying the specific Exception subclass. Callers can pattern-match or `raise result.error`. **Precondition violations (missing audio path) raise `Errno::ENOENT` directly** — they never enter the Result pipeline because they signal a caller bug, not a recoverable runtime state. This mirrors the rb-vision-* / rb-sound-analysis-mac convention where missing-file is always the one exception case.
 4. **Fixed defaults for Speech behavior.** Locale `en-US`, `shouldReportPartialResults = false`, 30s timeout. Changes go through new API methods.
 5. **No promise of thread safety.** Each call spawns its own subprocess. Concurrent calls work in practice (independent processes) but no synchronization is provided.
 
@@ -18,7 +18,7 @@ Sibling of `rb-vision-ocrmac`, but architecturally diverged: that gem is a thin 
 
 | Method | Returns | Notes |
 |---|---|---|
-| `SpeechMac.transcribe(path)` | `SpeechMac::Result` | Reads helper's cached authorization status (does not show dialog). On `:not_determined` returns `Result(success: false, error: NotAuthorizedError)` — caller should run `authorize` first. |
+| `SpeechMac.transcribe(path)` | `SpeechMac::Result` | Raises `Errno::ENOENT` if `path` doesn't exist (precondition). Otherwise reads helper's cached authorization status (does not show dialog). On `:not_determined` returns `Result(success: false, error: NotAuthorizedError)` — caller should run `authorize` first. |
 | `SpeechMac.authorize` | `SpeechMac::AuthorizationResult` | Triggers the macOS Speech Recognition permission dialog if status is `.notDetermined`. Caches grant for subsequent runs of the same helper binary (cdhash). |
 | `SpeechMac.helper_path` | String | Resolved helper binary path; defaults to `<gem_root>/lib/speech_mac/SpeechMacHelper`. |
 | `SpeechMac.helper_path=` | — | Override the resolved path (mainly for testing). |
@@ -51,7 +51,7 @@ All under `SpeechMac::Error < StandardError`:
 |---|---|
 | `NotAuthorizedError` | Helper exit 2 (status not `.authorized`) |
 | `RecognizerUnavailableError` | Helper exit 3 (recognizer offline or locale unsupported) |
-| `FileNotFoundError` | Helper exit 4 (audio path missing or empty) |
+| `FileNotFoundError` | Helper exit 4 (helper-side path issue: TOCTOU race, symlink loop, permission flip mid-run). The Ruby public API normally short-circuits missing paths with `Errno::ENOENT` before the helper is invoked, so reaching this in production means the file disappeared between our `File.exist?` check and the helper's open() — keep the class as a defensive fallback |
 | `TimeoutError` | Helper exit 5 (30s recognition timeout) |
 | `Error` (generic) | Helper exit 6 (Apple framework error; `.message` carries stderr) |
 | `HelperCrashError` | Unexpected non-zero exit |

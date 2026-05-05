@@ -47,6 +47,8 @@ end
 
 `SpeechMac.transcribe` returns a `SpeechMac::Result` Data with `.text` (String or nil), `.success` (Boolean), and `.error` (an Exception subclass instance or nil). `SpeechMac.authorize` returns `SpeechMac::AuthorizationResult` with `.status` symbol, `.success`, `.error`.
 
+**Missing audio path raises `Errno::ENOENT`** before the helper is invoked; this is a precondition violation, not a domain error, so it bypasses `Result`. Domain failures the caller is expected to handle (TCC denied, Siri off, recognizer unavailable, 30s timeout, Apple-framework recognition error, file exists but unreadable) flow through `result.error` as before.
+
 Locale is fixed at `en-US`. Recognition runs on-device only and has a 30s timeout.
 
 ## Codesigning
