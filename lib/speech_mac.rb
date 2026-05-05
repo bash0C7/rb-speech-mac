@@ -16,6 +16,8 @@ module SpeechMac
     attr_writer :helper_path
 
     def transcribe(path)
+      raise Errno::ENOENT, path unless File.exist?(path)
+
       HelperClient.new(helper_path).transcribe(path)
     end
 
