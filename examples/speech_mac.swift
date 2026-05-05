@@ -1,7 +1,12 @@
 import Speech
 import Foundation
 
-// Run with: swift examples/speech_mac.swift <audio-path>
+// Run with: xcrun swift examples/speech_mac.swift <audio-path>
+//
+// Use 'xcrun swift' (Xcode toolchain), not bare 'swift' (swiftly).
+// swiftly's swift interpret mode fails to JIT-link Apple system frameworks
+// (Speech), so symbol resolution errors at startup. xcrun's swift uses
+// dyld for framework linking and works as expected.
 //
 // IMPORTANT: SFSpeechRecognizer.requestAuthorization() will hard-crash any
 // host process that lacks NSSpeechRecognitionUsageDescription in its
@@ -10,7 +15,7 @@ import Foundation
 // If the status is not .authorized, it exits without calling the framework.
 
 guard CommandLine.arguments.count >= 2 else {
-    FileHandle.standardError.write("usage: swift examples/speech_mac.swift <audio-path>\n".data(using: .utf8)!)
+    FileHandle.standardError.write("usage: xcrun swift examples/speech_mac.swift <audio-path>\n".data(using: .utf8)!)
     exit(1)
 }
 

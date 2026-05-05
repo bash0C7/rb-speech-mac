@@ -76,8 +76,10 @@ Defaults to `test/fixtures/sample.aiff` (generated via `say -v Samantha`) if no 
 A standalone Swift script at `examples/speech_mac.swift` for sanity-checking Speech behavior without going through Ruby:
 
 ```bash
-swift examples/speech_mac.swift path/to/audio.aiff
+xcrun swift examples/speech_mac.swift path/to/audio.aiff
 ```
+
+Use `xcrun swift` (Xcode toolchain — install via `xcode-select --install`), not bare `swift` from swiftly. swiftly's swift interpret mode does not JIT-link Apple system frameworks (Speech) and aborts at startup with symbol-resolution errors; xcrun's swift uses dyld and works as-is. The library build itself does not need Xcode CLT — this is sample-only.
 
 Note: this script will get the same `.notDetermined` status as an unsigned Ruby interpreter would and will not actually transcribe — it's a behavioral reference, not a working alternative.
 

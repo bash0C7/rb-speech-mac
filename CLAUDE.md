@@ -160,6 +160,8 @@ t-wada style RED → GREEN → REFACTOR independent commits. test-unit. Fixtures
 
 macOS 12+, Apple Silicon, Swift 6.0+, Ruby 3.2+ (`Data.define` is required), bundler 4.x. `say` available (default on macOS) for fixture regeneration. Optional but recommended: an Apple Development signing identity in the keychain for stable TCC permission across rebuilds.
 
+Xcode Command Line Tools required only for running `examples/speech_mac.swift` via `xcrun swift` — the bare `swift` command from swiftly cannot JIT-link Apple system frameworks (verified across the rb-*mac family: SDKROOT, -F, -Xlinker, -sdk all fail). The library / helper-binary build itself does not need CLT (it goes through `swiftc` non-interpret mode, which does link). example.swift does not use SE-0495 `@c`. Install with `xcode-select --install`.
+
 **Siri or Dictation must be enabled in System Settings.** `SFSpeechRecognizer`'s on-device language model is shared with Siri / Dictation; with both off the framework returns `kLSRErrorDomain Code=201 "Siri and Dictation are disabled"`. On Sequoia: System Settings → Apple Intelligence & Siri → Siri. The error is surfaced verbatim through `Result.error.message` (helper exit 6, generic `SpeechMac::Error`).
 
 ## Prohibitions
