@@ -1,7 +1,5 @@
 import Foundation
 
-// Disclaim TCC responsibility from the parent (terminal / Ruby) once, on
-// first invocation. See Disclaim.swift for the why.
 if ProcessInfo.processInfo.environment[disclaimEnvKey] == nil {
     reexecWithDisclaim()
 }
@@ -9,23 +7,20 @@ if ProcessInfo.processInfo.environment[disclaimEnvKey] == nil {
 let arguments = CommandLine.arguments
 
 guard arguments.count >= 2 else {
-    FileHandle.standardError.write("usage: SpeechMacHelper <transcribe|authorize> [args...]\n".data(using: .utf8)!)
+    warn("usage: SpeechMacHelper <transcribe|authorize> [args...]")
     exit(1)
 }
 
-let subcommand = arguments[1]
-let rest = Array(arguments.dropFirst(2))
-
-switch subcommand {
+switch arguments[1] {
 case "transcribe":
-    guard let path = rest.first else {
-        FileHandle.standardError.write("usage: SpeechMacHelper transcribe <audio-path>\n".data(using: .utf8)!)
+    guard arguments.count >= 3 else {
+        warn("usage: SpeechMacHelper transcribe <audio-path>")
         exit(1)
     }
-    exit(transcribe(path: path))
+    exit(transcribe(path: arguments[2]))
 case "authorize":
     exit(authorize())
 default:
-    FileHandle.standardError.write("unknown subcommand: \(subcommand)\n".data(using: .utf8)!)
+    warn("unknown subcommand: \(arguments[1])")
     exit(1)
 }

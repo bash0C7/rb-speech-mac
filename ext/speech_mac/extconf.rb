@@ -7,29 +7,14 @@ def detect_codesign_identity
   override = ENV["SPEECH_MAC_CODESIGN_IDENTITY"]
   return override if override && !override.empty?
 
-  output = `security find-identity -v -p codesigning 2>/dev/null`
-  candidates = output.scan(/"(Apple Development:[^"]+)"/).flatten
-  case candidates.size
-  when 0
-    "-"
-  when 1
-    candidates.first
-  else
-    warn "[rb-speech-mac] multiple Apple Development certs found:"
-    candidates.each { |c| warn "[rb-speech-mac]   #{c}" }
-    warn "[rb-speech-mac] using first; set SPEECH_MAC_CODESIGN_IDENTITY to choose explicitly"
-    candidates.first
-  end
+  `security find-identity -v -p codesigning`[/^\s*\d+\) (\h{40}) "Apple Development: [^"]+"$/, 1] || "-"
 end
 
-# Escape '$' so Make doesn't interpret values as variable references
 def make_escape(string)
   string.gsub("$", "$$")
 end
 
-source_dir = __dir__
-gem_root = File.expand_path("../..", source_dir)
-install_path = File.join(gem_root, "lib", "speech_mac", "SpeechMacHelper")
+install_path = File.expand_path("../../lib/speech_mac/SpeechMacHelper", __dir__)
 install_dir = File.dirname(install_path)
 identity = detect_codesign_identity
 
@@ -47,7 +32,7 @@ BUNDLE_ID    = #{BUNDLE_ID}
 all: install
 
 build:
-\tswift build -c release --package-path .
+\txcrun swift build -c release --package-path . --product SpeechMacHelper
 \tcodesign -s '$(IDENTITY)' --force --identifier '$(BUNDLE_ID)' --options runtime '$(BUILD_PATH)'
 
 install: build
@@ -55,7 +40,6 @@ install: build
 \tinstall -m 755 '$(BUILD_PATH)' '$(DEST_PATH)'
 
 clean:
-\tswift package clean
 \trm -rf .build
 
 distclean: clean

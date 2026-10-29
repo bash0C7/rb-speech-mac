@@ -12,7 +12,6 @@ class HelperClientTest < Test::Unit::TestCase
     SpeechMac::HelperClient.new(path)
   end
 
-  # transcribe
   test "transcribe success: exit 0 -> Result(success: true, text: stdout)" do
     client = build_client(exit_code: 0, stdout: "hello world")
     result = client.transcribe("/some/path")
@@ -88,7 +87,6 @@ class HelperClientTest < Test::Unit::TestCase
     assert_kind_of(SpeechMac::HelperCrashError, result.error)
   end
 
-  # authorize
   test "authorize exit 0 stdout=authorized -> AuthorizationResult(:authorized, success: true)" do
     client = build_client(exit_code: 0, stdout: "authorized")
     result = client.authorize
@@ -118,6 +116,14 @@ class HelperClientTest < Test::Unit::TestCase
     result = client.authorize
     assert_equal(:not_determined, result.status)
     assert_kind_of(SpeechMac::NotAuthorizedError, result.error)
+  end
+
+  test "authorize exit 5 -> AuthorizationResult(:unknown, TimeoutError)" do
+    client = build_client(exit_code: 5, stderr: "authorize timed out after 60s (no user response)")
+    result = client.authorize
+    assert_equal(:unknown, result.status)
+    assert_equal(false, result.success)
+    assert_kind_of(SpeechMac::TimeoutError, result.error)
   end
 
   test "authorize with missing helper binary -> AuthorizationResult with HelperSpawnError" do
