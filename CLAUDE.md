@@ -2,46 +2,27 @@
 
 ## Position
 
-Ruby binding for Apple's Speech framework on macOS, exposed as singleton methods on `SpeechMac`. Implementation is a **subprocess client**: Ruby spawns a separately-signed Swift CLI helper (`SpeechMacHelper`) for each call. The helper has its own `Info.plist` with `NSSpeechRecognitionUsageDescription` embedded into the Mach-O via `-sectcreate __TEXT __info_plist`, so TCC sees a valid identity and lets `SFSpeechRecognizer.requestAuthorization()` work without crashing.
-
-Sibling of `rb-vision-ocrmac`, but architecturally diverged: that gem is a thin C+Swift dylib loaded into the Ruby process, while this one runs Speech.framework in a separate process to satisfy TCC. Scaffold parity with `swift_gem new` no longer holds for this repo.
+Ruby binding for Apple's Speech framework on macOS, exposed as singleton methods on `SpeechMac`. Ruby spawns the `SpeechMacHelper` subprocess, a Swift Package Manager executable, for each call. The helper embeds an `Info.plist` with `NSSpeechRecognitionUsageDescription` into its Mach-O via `-sectcreate __TEXT __info_plist`, so TCC sees a valid identity and `SFSpeechRecognizer.requestAuthorization` works. Scaffolded from `bash0C7/swift_gem`. Sibling of `rb-translation-mac`, which uses the same helper subprocess layout.
 
 ## Core design principles
 
-1. **Subprocess isolation for TCC.** The Ruby interpreter never loads Speech.framework code — it spawns the helper. TCC permission attaches to the helper's identity (cdhash for ad-hoc, designated requirement for Apple Development cert), independent of the Ruby host.
-2. **Source-only distribution, build at install time.** No precompiled binaries shipped. `extconf.rb` writes a custom Makefile that runs `swift build` and `codesign` during `gem install` / `bundle install`. The user gets the helper compiled and signed for their own machine.
-3. **Explicit error reporting via `Data` for domain failures; raise for preconditions.** Domain failures (TCC denied, Siri off, recognizer unavailable, 30s timeout, Apple-framework recognition error, file exists but unreadable) don't return `""` — they return a `Result` (or `AuthorizationResult`) Data with `success: false` and an `error:` field carrying the specific Exception subclass. Callers can pattern-match or `raise result.error`. **Precondition violations (missing audio path) raise `Errno::ENOENT` directly** — they never enter the Result pipeline because they signal a caller bug, not a recoverable runtime state. This mirrors the rb-vision-* / rb-sound-analysis-mac convention where missing-file is always the one exception case.
-4. **Fixed defaults for Speech behavior.** Locale `en-US`, `shouldReportPartialResults = false`, 30s timeout. Changes go through new API methods.
-5. **No promise of thread safety.** Each call spawns its own subprocess. Concurrent calls work in practice (independent processes) but no synchronization is provided.
+1. **Subprocess isolation for TCC.** The Ruby interpreter never loads Speech.framework code. TCC permission attaches to the helper's signature: the code hash for ad hoc, the designated requirement for an Apple Development identity. The helper re-executes itself once with `responsibility_spawnattrs_setdisclaim` so TCC treats it, not the terminal or Ruby host, as the responsible process.
+2. **Source-only distribution, build at install time.** No precompiled binaries ship. `extconf.rb` writes a Makefile that runs `xcrun swift build` and `codesign` during `gem install`; `rake compile` runs the same `extconf.rb` and `make install`.
+3. **Result values for domain failures; raise for preconditions.** TCC denied, Siri off, recognizer unavailable, 30-second timeout, Speech framework errors, and helper failures return a `Result` or `AuthorizationResult` with `success: false` and `error` set. A missing audio path raises `Errno::ENOENT` before the helper runs.
+4. **Fixed defaults for Speech behavior.** Locale `en-US`, `shouldReportPartialResults = false`, `requiresOnDeviceRecognition = true`, 30-second recognition timeout, 60-second authorization timeout. Changes go through new API methods.
+5. **No promise of thread safety.** Each call spawns its own subprocess.
+6. **Scaffold parity where it applies.** `xcrun swift`, `swift-tools-version: 6.4`, `.macOS(.v27)`, `task :swift`, `task compile: :swift`, `task :rbs`, `task test: %i[rbs compile]`, `sig/`, and the tracked `.bundle/config` follow swift_gem. The scaffold's C extension pieces (`swift_mkmf.rb`, `<m>.c`, `@c` bridge, `Rake::ExtensionTask`, `rake-compiler`) do not apply because nothing runs in the Ruby process; `extconf.rb` builds the helper instead of a C extension.
 
 ## Public API
 
 | Method | Returns | Notes |
 |---|---|---|
-| `SpeechMac.transcribe(path)` | `SpeechMac::Result` | Raises `Errno::ENOENT` if `path` doesn't exist (precondition). Otherwise reads helper's cached authorization status (does not show dialog). On `:not_determined` returns `Result(success: false, error: NotAuthorizedError)` — caller should run `authorize` first. |
-| `SpeechMac.authorize` | `SpeechMac::AuthorizationResult` | Triggers the macOS Speech Recognition permission dialog if status is `.notDetermined`. Caches grant for subsequent runs of the same helper binary (cdhash). |
-| `SpeechMac.helper_path` | String | Resolved helper binary path; defaults to `<gem_root>/lib/speech_mac/SpeechMacHelper`. |
-| `SpeechMac.helper_path=` | — | Override the resolved path (mainly for testing). |
+| `SpeechMac.transcribe(path)` | `SpeechMac::Result` | Raises `Errno::ENOENT` if `path` doesn't exist. Reads the helper's granted status without showing the dialog; `:not_determined` returns `NotAuthorizedError` |
+| `SpeechMac.authorize` | `SpeechMac::AuthorizationResult` | Shows the Speech Recognition dialog while the status is `.notDetermined` |
+| `SpeechMac.helper_path` | String | Defaults to `<gem_root>/lib/speech_mac/SpeechMacHelper` |
+| `SpeechMac.helper_path=` | — | Overrides the helper path (used by tests) |
 
-### `Result` shape
-
-`Result = Data.define(:text, :success, :error)`
-
-| field | success | failure |
-|---|---|---|
-| `text` | transcribed String | `nil` |
-| `success` | `true` | `false` |
-| `error` | `nil` | Exception instance |
-
-### `AuthorizationResult` shape
-
-`AuthorizationResult = Data.define(:status, :success, :error)`
-
-| field | success | failure |
-|---|---|---|
-| `status` | `:authorized` | `:denied` / `:restricted` / `:not_determined` / `:unknown` |
-| `success` | `true` | `false` |
-| `error` | `nil` | Exception instance (typically `NotAuthorizedError` or `HelperSpawnError`) |
+`Result = Data.define(:text, :success, :error)` and `AuthorizationResult = Data.define(:status, :success, :error)`. `status` is `:authorized`, `:denied`, `:restricted`, `:not_determined`, or `:unknown`.
 
 ### Error hierarchy
 
@@ -49,52 +30,49 @@ All under `SpeechMac::Error < StandardError`:
 
 | Class | When |
 |---|---|
-| `NotAuthorizedError` | Helper exit 2 (status not `.authorized`) |
-| `RecognizerUnavailableError` | Helper exit 3 (recognizer offline or locale unsupported) |
-| `FileNotFoundError` | Helper exit 4 (helper-side path issue: TOCTOU race, symlink loop, permission flip mid-run). The Ruby public API normally short-circuits missing paths with `Errno::ENOENT` before the helper is invoked, so reaching this in production means the file disappeared between our `File.exist?` check and the helper's open() — keep the class as a defensive fallback |
-| `TimeoutError` | Helper exit 5 (30s recognition timeout) |
-| `Error` (generic) | Helper exit 6 (Apple framework error; `.message` carries stderr) |
-| `HelperCrashError` | Unexpected non-zero exit |
-| `HelperSpawnError` | Ruby couldn't spawn the helper (binary missing / not executable) |
+| `NotAuthorizedError` | Helper exit 2; for `authorize`, any non-zero exit other than 5 |
+| `RecognizerUnavailableError` | Helper exit 3 |
+| `FileNotFoundError` | Helper exit 4 (the file disappeared after the Ruby-side existence check) |
+| `TimeoutError` | Helper exit 5 |
+| `Error` | Helper exit 6 (Speech framework error; `message` carries stderr) |
+| `HelperCrashError` | Killed by a signal or an unexpected exit code |
+| `HelperSpawnError` | Ruby could not spawn the helper |
 
 ## Architecture
 
 ```
 [caller (Ruby)]
   │
-  │   SpeechMac.transcribe(path) → Result
   ▼
-lib/speech_mac.rb              ← public API + helper_path resolution
+lib/speech_mac.rb                ← public API, helper_path accessors
   │
   ▼
-lib/speech_mac/helper_client.rb  ← Open3.capture3 + exit code → Error mapping
+lib/speech_mac/helper_client.rb  ← Open3.capture3, exit code → Result / AuthorizationResult
   │
-  │   Process.spawn (separate process, separate TCC identity)
   ▼
 lib/speech_mac/SpeechMacHelper   ← signed Mach-O with embedded Info.plist
-  │
-  ▼
-ext/speech_mac/Sources/SpeechMacHelper/{main,Transcribe,Authorize}.swift
-  │
-  ▼
-[Apple Speech framework]
+  ├─ re-exec with TCC responsibility disclaimed
+  ├─ transcribe → SFSpeechURLRecognitionRequest, CFRunLoopRunInMode with 30 s limit
+  └─ authorize  → SFSpeechRecognizer.requestAuthorization, CFRunLoopRunInMode with 60 s limit
 ```
 
 ## Module boundaries
 
 | Layer | Responsibility |
 |---|---|
-| `lib/speech_mac.rb` | Public module; defines `SpeechMac.transcribe` / `.authorize` / `.helper_path`; resolves default helper path |
-| `lib/speech_mac/errors.rb` | Error class hierarchy |
-| `lib/speech_mac/result.rb` | `Result` and `AuthorizationResult` Data classes |
-| `lib/speech_mac/helper_client.rb` | Subprocess invocation, stdout/stderr capture, exit code → Error mapping |
-| `lib/speech_mac/SpeechMacHelper` | Built-and-installed helper binary (artifact, not git-tracked) |
-| `ext/speech_mac/extconf.rb` | Detects codesign identity (env > Apple Development cert > ad-hoc); writes Makefile that runs `swift build` + `codesign --identifier <bundle_id>` + installs binary |
-| `ext/speech_mac/Sources/SpeechMacHelper/main.swift` | CLI subcommand dispatch (`transcribe` / `authorize`) |
-| `ext/speech_mac/Sources/SpeechMacHelper/Transcribe.swift` | `SFSpeechURLRecognitionRequest` driver, 30s `DispatchSemaphore` timeout |
-| `ext/speech_mac/Sources/SpeechMacHelper/Authorize.swift` | `SFSpeechRecognizer.requestAuthorization` wrapper, prints status to stdout |
-| `ext/speech_mac/Resources/Info.plist` | Embedded into Mach-O via `-sectcreate __TEXT __info_plist`. Contains `CFBundleIdentifier=com.bash0c7.rb-speech-mac.helper` and `NSSpeechRecognitionUsageDescription` |
-| `ext/speech_mac/Package.swift` | Single `executableTarget`; `linkerSettings` injects the `__info_plist` section |
+| `lib/speech_mac.rb` | `DEFAULT_HELPER_PATH`, `helper_path` accessors, `transcribe`, `authorize` |
+| `lib/speech_mac/errors.rb` | Error hierarchy |
+| `lib/speech_mac/result.rb` | `Result` and `AuthorizationResult` |
+| `lib/speech_mac/helper_client.rb` | Runs the helper, maps exit codes and output to Ruby values |
+| `sig/speech_mac.rbs` | RBS and API documentation for everything above |
+| `ext/speech_mac/extconf.rb` | Chooses the codesign identity and writes the Makefile that builds, signs, and installs the helper |
+| `ext/speech_mac/Package.swift` | `SpeechMacHelper` executable product; `linkerSettings` embed `Resources/Info.plist` |
+| `ext/speech_mac/Sources/SpeechMacHelper/main.swift` | Disclaim re-exec, subcommand dispatch |
+| `ext/speech_mac/Sources/SpeechMacHelper/Disclaim.swift` | `reexecWithDisclaim` via `posix_spawn` with `responsibility_spawnattrs_setdisclaim` |
+| `ext/speech_mac/Sources/SpeechMacHelper/Transcribe.swift` | `transcribe(path:)`, `warn` |
+| `ext/speech_mac/Sources/SpeechMacHelper/Authorize.swift` | `authorize()` |
+| `ext/speech_mac/Resources/Info.plist` | `CFBundleIdentifier=com.bash0c7.rb-speech-mac.helper`, `NSSpeechRecognitionUsageDescription` |
+| `Rakefile` | `task :swift` (`extconf.rb` + `make install`), `task compile: :swift`, `task :clean`, `task :rbs`, `task test: %i[rbs compile]`, `task console: :compile` |
 
 ## Helper IPC protocol
 
@@ -103,74 +81,61 @@ SpeechMacHelper transcribe <audio-path>
 SpeechMacHelper authorize
 ```
 
-**stdin**: not used.
-**stdout**: success payload (transcription text for `transcribe`, status name for `authorize`).
-**stderr**: human-readable error detail; surfaced into `Error.message` on failure.
-**exit code**:
+Standard output carries the transcription or the status name without a trailing newline. Standard error carries the failure message.
 
-| Code | Meaning |
+| Exit | Meaning |
 |---|---|
 | 0 | Success |
-| 1 | Usage error (bad argv) |
-| 2 | Not authorized (status ≠ `.authorized`) |
-| 3 | Recognizer unavailable for locale |
-| 4 | Audio file not found / empty path |
-| 5 | 30s recognition timeout |
-| 6 | Apple framework recognition error |
-| other | Treated by Ruby as `HelperCrashError` |
+| 1 | Usage error |
+| 2 | Not authorized |
+| 3 | Recognizer or on-device model unavailable for `en-US` |
+| 4 | Audio file not found or empty path |
+| 5 | Timeout (30 s recognition, 60 s authorization) |
+| 6 | Speech framework recognition error |
 
 ## Codesigning
 
-Identity selection in `extconf.rb` is C → B → A:
+`extconf.rb` selects the identity in this order:
 
-1. **C** — `SPEECH_MAC_CODESIGN_IDENTITY` env var (explicit override, takes precedence).
-2. **B** — first `Apple Development:` cert from `security find-identity -v -p codesigning`.
-3. **A** — ad-hoc (`-`).
+1. `SPEECH_MAC_CODESIGN_IDENTITY`
+2. The SHA-1 hash of the first `Apple Development` line in `security find-identity -v -p codesigning` without a `CSSMERR_*` suffix. The hash is used instead of the name because revoked certificates share the name and make `codesign -s <name>` fail as ambiguous.
+3. Ad hoc (`-`)
 
-`codesign --force --identifier com.bash0c7.rb-speech-mac.helper` is always passed so the Info.plist is bound to the signature (`Info.plist=bound` in `codesign -dv`); without `--identifier`, ad-hoc signatures default to the binary basename and the plist is reported as `not bound`.
-
-**TCC and rebuild**: ad-hoc-signed binaries are tracked by cdhash. Rebuilding (e.g. on every `gem install`) changes the cdhash, so the user has to re-grant Speech Recognition permission. Installing an Apple Development identity (free Apple ID via Xcode) gives a stable designated requirement that survives rebuilds.
+`codesign --force --identifier com.bash0c7.rb-speech-mac.helper --options runtime` binds the embedded `Info.plist`. TCC stores one Speech Recognition entry per identifier with the code requirement of the granted binary: a code hash for ad hoc, which a rebuild invalidates, or the designated requirement for an Apple Development signature, which survives rebuilds.
 
 ## Build flow
 
-```
-bundle exec rake compile
-```
+`bundle exec rake compile`, or `gem install` through `spec.extensions`:
 
-Equivalently, during `gem install` / `bundle install` (via `spec.extensions = ["ext/speech_mac/extconf.rb"]`), RubyGems runs:
+1. `ruby extconf.rb` writes `ext/speech_mac/Makefile`
+2. `xcrun swift build -c release --package-path . --product SpeechMacHelper`
+3. `codesign` as above
+4. `install -m 755` to `lib/speech_mac/SpeechMacHelper`
 
-```
-ruby extconf.rb           # writes Makefile, prints chosen identity
-make install              # swift build → codesign → install -m 755 → lib/speech_mac/SpeechMacHelper
-```
-
-`bundle exec rake test` runs the unit tests (which use `test/fixtures/fake_helper.sh`, so they don't need the real helper built).
+`bundle exec rake test` validates the RBS, compiles, and runs the tests.
 
 ## TDD discipline
 
-t-wada style RED → GREEN → REFACTOR independent commits. test-unit. Fixtures: `test/fixtures/sample.aiff` (macOS `say -v Samantha`, ~135 KB) and `test/fixtures/fake_helper.sh` (driven by `FAKE_EXIT` / `FAKE_STDOUT` / `FAKE_STDERR` env vars to exercise `HelperClient` exit-code mapping without the real Swift helper).
+t-wada style RED → GREEN → REFACTOR independent commits. test-unit. All tests run `test/fixtures/fake_helper.sh` in place of the helper, driven by `FAKE_EXIT`, `FAKE_STDOUT`, `FAKE_STDERR`, and `FAKE_SIGNAL`. `test/fixtures/sample.aiff` is English speech generated with `say -v Samantha`; run the real helper against it to check recognition.
 
 ## Related projects
 
-- `~/dev/src/github.com/bash0C7/rb-vision-ocrmac` — sibling for Vision.framework (no TCC issue, stays as in-process C+Swift dylib).
-- `~/dev/src/github.com/bash0C7/rb-record-transcribe-mac` — different stack (FFmpeg + MLX Whisper); kept as a non-Speech-framework alternative.
-- `~/dev/src/github.com/bash0C7/swift_gem` — scaffold/Mkmf framework. **Not used** by this repo since the build no longer produces a Ruby C extension.
+- `~/dev/src/github.com/bash0C7/swift_gem` — scaffold origin
+- `~/dev/src/github.com/bash0C7/rb-translation-mac` — sibling with the same helper subprocess layout
+- `~/dev/src/github.com/bash0C7/rb-vision-mac` — sibling on the C extension scaffold
 
 ## Environment requirements
 
-macOS 12+, Apple Silicon, Swift 6.0+, Ruby 3.2+ (`Data.define` is required), bundler 4.x. `say` available (default on macOS) for fixture regeneration. Optional but recommended: an Apple Development signing identity in the keychain for stable TCC permission across rebuilds.
-
-Xcode Command Line Tools required only for running `examples/speech_mac.swift` via `xcrun swift` — the bare `swift` command from swiftly cannot JIT-link Apple system frameworks (verified across the rb-*mac family: SDKROOT, -F, -Xlinker, -sdk all fail). The library / helper-binary build itself does not need CLT (it goes through `swiftc` non-interpret mode, which does link). example.swift does not use SE-0495 `@c`. Install with `xcode-select --install`.
-
-**Siri or Dictation must be enabled in System Settings.** `SFSpeechRecognizer`'s on-device language model is shared with Siri / Dictation; with both off the framework returns `kLSRErrorDomain Code=201 "Siri and Dictation are disabled"`. On Sequoia: System Settings → Apple Intelligence & Siri → Siri. The error is surfaced verbatim through `Result.error.message` (helper exit 6, generic `SpeechMac::Error`).
+macOS 27+, Apple Silicon, Xcode 27 (Swift 6.4, builds run `xcrun swift`), Ruby 4.0+, bundler 4.x, rbs 4.x. Siri or Dictation must be enabled (System Settings → Apple Intelligence & Siri, or Keyboard → Dictation); on-device recognition uses their language model. An Apple Development identity in the keychain keeps the Speech Recognition grant across rebuilds. `Gemfile.lock` is not git-tracked.
 
 ## Prohibitions
 
-- No Python source.
-- Do not git-track `Gemfile.lock`.
-- Do not add live microphone capture (AVAudioEngine) here — file-based only.
-- Do not promise thread safety for concurrent calls.
-- Do not cache, normalize, or post-process transcription results here.
-- Do not call `SFSpeechRecognizer.requestAuthorization` from anything other than the helper subprocess (the Ruby interpreter has no `NSSpeechRecognitionUsageDescription` and would be killed by TCC).
-- Commit messages in English, conventional commits style.
-- `.claude/` is committed.
+- No Python source
+- No code comments. Swift is documented with DocC (`///`, `- Parameter`, `- Returns`, ``` ``symbol`` ``` links); Ruby is documented with `#` comments above declarations in `sig/speech_mac.rbs`. History goes in commit messages
+- Do not git-track `Gemfile.lock`
+- Do not add live microphone capture (AVAudioEngine); file-based only
+- Do not promise thread safety for concurrent calls
+- Do not cache, normalize, or post-process transcription results
+- Do not call `SFSpeechRecognizer.requestAuthorization` outside the helper subprocess; the Ruby interpreter has no `NSSpeechRecognitionUsageDescription` and TCC would kill it
+- Commit messages in English, conventional commits style
+- `.claude/` is committed
