@@ -42,7 +42,8 @@ module SpeechMac
         AuthorizationResult.new(status: sym, success: false, error: HelperCrashError.new(crash_message(stderr, status)))
       else
         message = stderr.empty? ? stdout : stderr
-        AuthorizationResult.new(status: sym, success: false, error: NotAuthorizedError.new(message))
+        klass = status.exitstatus == 5 ? TimeoutError : NotAuthorizedError
+        AuthorizationResult.new(status: sym, success: false, error: klass.new(message))
       end
     rescue Errno::ENOENT, Errno::EACCES => e
       AuthorizationResult.new(status: :unknown, success: false, error: HelperSpawnError.new(e.message))

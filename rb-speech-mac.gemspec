@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.description = "Calls Apple Speech framework's file-based speech recognition (SFSpeechURLRecognitionRequest) from Ruby on macOS / Apple Silicon, via a TCC-permitted helper subprocess built and signed at install time."
   spec.homepage = "https://github.com/bash0C7/rb-speech-mac"
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 3.2.0"
+  spec.required_ruby_version = ">= 4.0"
 
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = "https://github.com/bash0C7/rb-speech-mac"
@@ -24,8 +24,6 @@ Gem::Specification.new do |spec|
         f.start_with?(*%w[bin/ Gemfile .gitignore test/ .github/])
     end
   end
-  spec.bindir = "exe"
-  spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
   spec.extensions = ["ext/speech_mac/extconf.rb"]
 end

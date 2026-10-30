@@ -5,13 +5,15 @@ require "rake/testtask"
 
 EXT_DIR = File.expand_path("ext/speech_mac", __dir__)
 
-desc "Build the SpeechMacHelper binary and install it into lib/speech_mac/"
-task :compile do
+desc "Build the Swift package, then sign and install the helper"
+task :swift do
   Dir.chdir(EXT_DIR) do
-    sh Gem.ruby, "extconf.rb"
+    ruby "extconf.rb"
     sh "make", "install"
   end
 end
+
+task compile: :swift
 
 desc "Remove the helper binary and Swift build cache"
 task :clean do
@@ -27,6 +29,11 @@ Rake::TestTask.new(:test) do |t|
   t.test_files = FileList["test/**/*_test.rb"]
 end
 
+desc "Validate the RBS signatures"
+task :rbs do
+  sh "rbs", "-I", "sig", "validate"
+end
+
 desc "Start an IRB console with speech_mac loaded"
 task console: :compile do
   require "irb"
@@ -36,4 +43,5 @@ task console: :compile do
   IRB.start
 end
 
+task test: %i[rbs compile]
 task default: :test

@@ -1,0 +1,88 @@
+module SpeechMac
+  # The gem version.
+  VERSION: String
+
+  # The path of the SpeechMacHelper binary that rake compile installs.
+  DEFAULT_HELPER_PATH: String
+
+  # Speech Recognition authorization status reported by the helper.
+  type status = :authorized | :denied | :restricted | :not_determined | :unknown
+
+  # Returns the helper binary path, DEFAULT_HELPER_PATH unless overridden.
+  def self.helper_path: () -> String
+
+  # Overrides the helper binary path.
+  def self.helper_path=: (String) -> String
+
+  # Transcribes the audio file at +path+ on device with the en-US recognizer.
+  # Raises Errno::ENOENT when +path+ does not exist; every other failure is returned in Result#error.
+  # Never shows the permission dialog; call authorize first.
+  def self.transcribe: (String path) -> Result
+
+  # Requests Speech Recognition permission, showing the system dialog while the status is not determined.
+  # Returns TimeoutError when the dialog gets no answer within 60 seconds and NotAuthorizedError for any other status than :authorized.
+  def self.authorize: () -> AuthorizationResult
+
+  # Base class for errors carried by Result and AuthorizationResult; also used for Speech framework recognition errors.
+  class Error < StandardError
+  end
+
+  # Speech Recognition permission is not granted.
+  class NotAuthorizedError < Error
+  end
+
+  # Recognition did not finish within 30 seconds, or the permission dialog got no answer within 60 seconds.
+  class TimeoutError < Error
+  end
+
+  # The helper binary is missing or not executable.
+  class HelperSpawnError < Error
+  end
+
+  # The helper could not open the audio file.
+  class FileNotFoundError < Error
+  end
+
+  # The en-US recognizer or its on-device model is unavailable.
+  class RecognizerUnavailableError < Error
+  end
+
+  # The helper was killed by a signal or exited with an unexpected code.
+  class HelperCrashError < Error
+  end
+
+  # The outcome of transcribe. +text+ is set on success and +error+ on failure.
+  class Result < Data
+    attr_reader text: String?
+    attr_reader success: bool
+    attr_reader error: Error?
+
+    def initialize: (text: String?, success: bool, error: Error?) -> void
+                  | (String? text, bool success, Error? error) -> void
+  end
+
+  # The outcome of authorize. +status+ is :authorized on success.
+  class AuthorizationResult < Data
+    attr_reader status: status
+    attr_reader success: bool
+    attr_reader error: Error?
+
+    def initialize: (status: status, success: bool, error: Error?) -> void
+                  | (status status, bool success, Error? error) -> void
+  end
+
+  # Runs the helper binary and maps its exit code and output to Ruby values.
+  class HelperClient
+    # Helper exit codes that map to specific errors; 6 maps to Error and other non-zero codes to HelperCrashError.
+    EXIT_CODE_ERRORS: Hash[Integer, singleton(Error)]
+
+    # Helper output of authorize mapped to status symbols.
+    AUTHORIZATION_STATUSES: Hash[String, status]
+
+    def initialize: (String helper_path) -> void
+
+    def transcribe: (String audio_path) -> Result
+
+    def authorize: () -> AuthorizationResult
+  end
+end

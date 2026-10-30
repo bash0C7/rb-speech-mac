@@ -1,41 +1,34 @@
 # rb-speech-mac
 
-Ruby binding for Apple's Speech framework on macOS / Apple Silicon. Wraps `SFSpeechURLRecognitionRequest` for file-based transcription.
+Ruby binding for Apple's Speech framework on macOS / Apple Silicon. Transcribes audio files on device with `SFSpeechURLRecognitionRequest` through the bundled `SpeechMacHelper` subprocess, a Swift Package Manager executable that embeds `NSSpeechRecognitionUsageDescription` in its Mach-O so macOS can grant it Speech Recognition permission.
 
-This gem solves the TCC privacy-violation crash that normally kills Ruby when calling Speech.framework: it ships a small Swift CLI helper that's built and signed at install time, with `NSSpeechRecognitionUsageDescription` embedded into its Mach-O. Ruby spawns the helper as a subprocess and reads the result.
+## Requirements
+
+- macOS 27+, Apple Silicon
+- Xcode 27 (builds run `xcrun swift`)
+- Ruby 4.0+, Bundler 4.x
+- Siri or Dictation enabled: **System Settings → Apple Intelligence & Siri**, or **System Settings → Keyboard → Dictation**. On-device recognition uses their language model; with both off, `transcribe` fails with `SpeechMac::Error`.
 
 ## Installation
 
-```bash
-bundle add rb-speech-mac
-```
+Install from source:
 
 ```bash
-gem install rb-speech-mac
+git clone https://github.com/bash0C7/rb-speech-mac.git
+cd rb-speech-mac
+bundle install
+bundle exec rake compile
 ```
 
-The helper binary is built and signed during `gem install` (no precompiled binaries are shipped). Requires Swift 6.0+ and macOS 12+. Optional but recommended: an Apple Development signing identity in your keychain for stable TCC permission across rebuilds — without it, the helper falls back to ad-hoc signing and macOS will re-prompt for Speech Recognition permission after each rebuild.
-
-## System requirements: enable Siri (or Dictation)
-
-Recognition runs on-device. The on-device language model that `SFSpeechRecognizer` uses ships with **Siri** and **Dictation** — the system requires at least one of those to be turned on. With both off, the framework returns `kLSRErrorDomain Code=201 "Siri and Dictation are disabled"` and `transcribe` fails with a generic `SpeechMac::Error` carrying that message.
-
-On macOS 15 (Sequoia) and later, enable Siri from:
-
-> **System Settings → Apple Intelligence & Siri → Siri**
-
-(Older macOS: **System Settings → Siri & Spotlight** or **Keyboard → Dictation**.)
-
-The first time you transcribe, macOS may also show a one-time notice that audio data may be sent to Apple to improve recognition. Click through it; the gem sets `requiresOnDeviceRecognition = true`, so audio stays on the device regardless.
+`rake compile` builds `SpeechMacHelper` with `xcrun swift build -c release --package-path ext/speech_mac --product SpeechMacHelper`, signs it, and installs it to `lib/speech_mac/SpeechMacHelper`. Installing the packaged gem runs the same build through `ext/speech_mac/extconf.rb`.
 
 ## Usage
 
 ```ruby
 require "speech_mac"
 
-# Trigger the macOS permission dialog (only needed once per machine, per binary).
 auth = SpeechMac.authorize
-exit unless auth.success # auth.error tells you why
+exit unless auth.success
 
 result = SpeechMac.transcribe("path/to/audio.aiff")
 if result.success
@@ -45,53 +38,59 @@ else
 end
 ```
 
-`SpeechMac.transcribe` returns a `SpeechMac::Result` Data with `.text` (String or nil), `.success` (Boolean), and `.error` (an Exception subclass instance or nil). `SpeechMac.authorize` returns `SpeechMac::AuthorizationResult` with `.status` symbol, `.success`, `.error`.
+`authorize` shows the macOS Speech Recognition permission dialog while the status is not determined and returns a `SpeechMac::AuthorizationResult` with `status` (`:authorized`, `:denied`, `:restricted`, `:not_determined`, or `:unknown`), `success`, and `error`. `error` is `SpeechMac::TimeoutError` when the dialog gets no answer within 60 seconds and `SpeechMac::NotAuthorizedError` for any other status than `:authorized`.
 
-**Missing audio path raises `Errno::ENOENT`** before the helper is invoked; this is a precondition violation, not a domain error, so it bypasses `Result`. Domain failures the caller is expected to handle (TCC denied, Siri off, recognizer unavailable, 30s timeout, Apple-framework recognition error, file exists but unreadable) flow through `result.error` as before.
+`transcribe` returns a `SpeechMac::Result` with `text`, `success`, and `error`. It reads the granted permission and never shows the dialog. Locale is `en-US`, recognition runs on device only, and the time limit is 30 seconds. A missing audio path raises `Errno::ENOENT`; every other failure sets `error` to one of:
 
-Locale is fixed at `en-US`. Recognition runs on-device only and has a 30s timeout.
+| Error | Cause |
+|---|---|
+| `SpeechMac::NotAuthorizedError` | Speech Recognition permission is not granted |
+| `SpeechMac::RecognizerUnavailableError` | The `en-US` recognizer or its on-device model is unavailable |
+| `SpeechMac::FileNotFoundError` | The helper could not find the audio file |
+| `SpeechMac::TimeoutError` | Recognition did not finish within 30 seconds |
+| `SpeechMac::Error` | The Speech framework reported an error; `message` carries it |
+| `SpeechMac::HelperSpawnError` | The helper binary is missing or not executable |
+| `SpeechMac::HelperCrashError` | The helper was killed by a signal or exited unexpectedly |
+
+`SpeechMac.helper_path=` points the gem at another helper binary.
 
 ## Codesigning
 
-`extconf.rb` selects an identity in this order:
+The build signs the helper with, in order of preference:
 
-1. `SPEECH_MAC_CODESIGN_IDENTITY` env var
-2. First `Apple Development:` certificate from `security find-identity -v -p codesigning`
-3. Ad-hoc (`-`) fallback
+1. `SPEECH_MAC_CODESIGN_IDENTITY`
+2. The SHA-1 hash of the first unrevoked `Apple Development` identity in `security find-identity -v -p codesigning`
+3. Ad hoc (`-`)
 
-Pass an explicit identity if you want stable TCC permission across rebuilds:
-
-```bash
-SPEECH_MAC_CODESIGN_IDENTITY="Apple Development: Foo (XXXX)" bundle install
-```
-
-## Reference: Ruby example
+macOS keeps the Speech Recognition grant for an Apple Development signature across rebuilds. An ad hoc signature is identified by its code hash, so each rebuild that changes the binary asks for permission again.
 
 ```bash
-bundle exec ruby example.rb path/to/audio.aiff
+SPEECH_MAC_CODESIGN_IDENTITY=- bundle exec rake compile
 ```
 
-Defaults to `test/fixtures/sample.aiff` (generated via `say -v Samantha`) if no argument is given. Calls `SpeechMac.authorize` then `SpeechMac.transcribe`.
+## Examples
 
-## Reference: pure Swift sample
+```bash
+bundle exec ruby example.rb [path/to/audio.aiff]
+```
 
-A standalone Swift script at `examples/speech_mac.swift` for sanity-checking Speech behavior without going through Ruby:
+`example.rb` calls `SpeechMac.authorize`, then transcribes the given file or `test/fixtures/sample.aiff`.
 
 ```bash
 xcrun swift examples/speech_mac.swift path/to/audio.aiff
 ```
 
-Use `xcrun swift` (Xcode toolchain — install via `xcode-select --install`), not bare `swift` from swiftly. swiftly's swift interpret mode does not JIT-link Apple system frameworks (Speech) and aborts at startup with symbol-resolution errors; xcrun's swift uses dyld and works as-is. The library build itself does not need Xcode CLT — this is sample-only.
-
-Note: this script will get the same `.notDetermined` status as an unsigned Ruby interpreter would and will not actually transcribe — it's a behavioral reference, not a working alternative.
+`examples/speech_mac.swift` calls Speech directly from a Swift script. It only reads the authorization status of its host process, which has no Speech Recognition grant, so it exits with status 2 unless that host has been granted permission.
 
 ## Development
 
 ```bash
 bundle install
-bundle exec rake compile  # builds the helper and installs it under lib/
-bundle exec rake test     # runs the spec suite (uses a fake helper, no real binary needed)
+bundle exec rake test
+bundle exec rake console
 ```
+
+`rake test` validates `sig/speech_mac.rbs`, runs `rake compile`, then runs the tests. The tests run `test/fixtures/fake_helper.sh` in place of the helper, driven by `FAKE_EXIT`, `FAKE_STDOUT`, `FAKE_STDERR`, and `FAKE_SIGNAL`.
 
 ## License
 
